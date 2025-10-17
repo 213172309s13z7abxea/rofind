@@ -1,35 +1,49 @@
+// index.js
+require('dotenv').config();
 const express = require('express');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.get("/", (req, res) => {
-  res.send("Bot is alive!");
-});
+app.get('/', (req, res) => res.send('Bot is alive!'));
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
-
-// index.js
-require('dotenv').config();
 const { Client, GatewayIntentBits, Partials, EmbedBuilder, REST, Routes, SlashCommandBuilder } = require('discord.js');
 const axios = require('axios');
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
-const GUILD_ID = process.env.GUILD_ID || null;
+const GUILD_ID = process.env.GUILD_ID || null; // optional: set for instant (guild) command registration during testing
 
 if (!TOKEN || !CLIENT_ID) {
-  console.error('Missing DISCORD_TOKEN or CLIENT_ID in .env');
+  console.error('Missing DISCORD_TOKEN or CLIENT_ID in environment');
   process.exit(1);
 }
 
 const commands = [
-  new SlashCommandBuilder().setName('avatar').setDescription('Show Roblox avatar headshot').addStringOption(opt => opt.setName('user').setDescription('Roblox username or user id').setRequired(true)),
-  new SlashCommandBuilder().setName('user').setDescription('Mention a Discord user and show Roblox avatar').addUserOption(opt => opt.setName('discord').setDescription('Discord user to mention').setRequired(true)).addStringOption(opt => opt.setName('roblox').setDescription('Roblox username or id').setRequired(true)),
-  new SlashCommandBuilder().setName('donotax').setDescription('Donate amount (40% tax)').addNumberOption(opt => opt.setName('amount').setDescription('Amount (number)').setRequired(true)),
-  new SlashCommandBuilder().setName('gamepasstax').setDescription('Gamepass donation (30% tax)').addNumberOption(opt => opt.setName('amount').setDescription('Amount (number)').setRequired(true)),
-  new SlashCommandBuilder().setName('userinfo').setDescription('Detailed Roblox user info embed').addStringOption(opt => opt.setName('user').setDescription('Roblox username or user id').setRequired(true)),
+  new SlashCommandBuilder().setName('avatar').setDescription('Show Roblox avatar headshot')
+    .addStringOption(opt => opt.setName('user').setDescription('Roblox username or user id').setRequired(true)),
+
+  new SlashCommandBuilder().setName('user').setDescription('Mention a Discord user and show Roblox avatar')
+    .addUserOption(opt => opt.setName('discord').setDescription('Discord user to mention').setRequired(true))
+    .addStringOption(opt => opt.setName('roblox').setDescription('Roblox username or id').setRequired(true)),
+
+  new SlashCommandBuilder().setName('donotax').setDescription('Donate amount (40% tax)')
+    .addNumberOption(opt => opt.setName('amount').setDescription('Amount (number)').setRequired(true)),
+
+  new SlashCommandBuilder().setName('gamepasstax').setDescription('Gamepass donation (30% tax)')
+    .addNumberOption(opt => opt.setName('amount').setDescription('Amount (number)').setRequired(true)),
+
+  new SlashCommandBuilder().setName('userinfo').setDescription('Detailed Roblox user info embed')
+    .addStringOption(opt => opt.setName('user').setDescription('Roblox username or user id').setRequired(true)),
+
+  new SlashCommandBuilder().setName('friends').setDescription('Show Roblox friends of a user')
+    .addStringOption(opt => opt.setName('user').setDescription('Roblox username or user id').setRequired(true)),
+
+  new SlashCommandBuilder().setName('followers').setDescription('Show Roblox followers of a user')
+    .addStringOption(opt => opt.setName('user').setDescription('Roblox username or user id').setRequired(true)),
+
+  new SlashCommandBuilder().setName('following').setDescription('Show Roblox followings of a user')
+    .addStringOption(opt => opt.setName('user').setDescription('Roblox username or user id').setRequired(true)),
 ].map(cmd => cmd.toJSON());
 
 async function registerCommands() {
@@ -100,7 +114,22 @@ async function getGroupsCount(id) {
   const res = await axios.get(`https://groups.roblox.com/v1/users/${id}/groups/roles`).catch(() => null);
   return res && res.data ? res.data.length : 0;
 }
-// ---------- end roblox helpers ----------
+
+async function getFriendsList(id, limit = 50) {
+  const res = await axios.get(`https://friends.roblox.com/v1/users/${id}/friends?sortOrder=Asc&limit=${limit}`).catch(() => null);
+  return res && res.data && res.data.data ? res.data.data.map(f => f.name) : [];
+}
+
+async function getFollowersList(id, limit = 50) {
+  const res = await axios.get(`https://friends.roblox.com/v1/users/${id}/followers?limit=${limit}`).catch(() => null);
+  return res && res.data && res.data.data ? res.data.data.map(f => f.name) : [];
+}
+
+async function getFollowingsList(id, limit = 50) {
+  const res = await axios.get(`https://friends.roblox.com/v1/users/${id}/followings?limit=${limit}`).catch(() => null);
+  return res && res.data && res.data.data ? res.data.data.map(f => f.name) : [];
+}
+// ---------- end helpers ----------
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
@@ -116,6 +145,7 @@ client.on('interactionCreate', async (interaction) => {
   const name = interaction.commandName;
 
   try {
+    // --- /avatar ---
     if (name === 'avatar') {
       await interaction.deferReply();
       const userInput = interaction.options.getString('user', true);
@@ -126,6 +156,7 @@ client.on('interactionCreate', async (interaction) => {
       return interaction.editReply({ content: url });
     }
 
+    // --- /user ---
     if (name === 'user') {
       await interaction.deferReply();
       const discordUser = interaction.options.getUser('discord', true);
@@ -134,9 +165,11 @@ client.on('interactionCreate', async (interaction) => {
       if (!id) return interaction.editReply('Could not find that Roblox user.');
       const url = await getHeadshotUrl(id);
       const mention = `<@${discordUser.id}>`;
-      return interaction.editReply({ content: `${mention} ${url}` });
+      if (url) return interaction.editReply({ content: `${mention} ${url}` });
+      return interaction.editReply(`${mention}\n(avatar not found)`);
     }
 
+    // --- /donotax & /gamepasstax ---
     if (name === 'donotax' || name === 'gamepasstax') {
       const amount = interaction.options.getNumber('amount', true);
       const tax = name === 'donotax' ? 0.40 : 0.30;
@@ -147,6 +180,7 @@ client.on('interactionCreate', async (interaction) => {
       });
     }
 
+    // --- /userinfo ---
     if (name === 'userinfo') {
       await interaction.deferReply();
       const userInput = interaction.options.getString('user', true);
@@ -165,7 +199,7 @@ client.on('interactionCreate', async (interaction) => {
 
       if (!userInfo) return interaction.editReply('Could not fetch user info.');
 
-      const displayName = userInfo.displayName || userInfo.username;
+      const displayName = (userInfo.displayName || userInfo.username) ?? userInput;
       const username = userInfo.name || userInfo.username || userInput;
       const profileUrl = `https://roblox.com/users/${id}/profile`;
       const friendsStr = friends ?? 'N/A';
@@ -175,7 +209,7 @@ client.on('interactionCreate', async (interaction) => {
       const premium = userInfo.isPremium ? 'Yes' : 'No';
       const badgesCount = 0; // removed broken badges
       const groupsCount = await getGroupsCount(id);
-      const inventoryPrivacy = profileInfo?.profileData?.isInventoryPrivate ? 'Private' : 'Public';
+      const inventoryPrivacy = (profileInfo?.profileData && typeof profileInfo.profileData.isInventoryPrivate !== 'undefined') ? (profileInfo.profileData.isInventoryPrivate ? 'Private' : 'Public') : 'Unknown';
       const description = profileInfo?.profileData?.blurb || profileInfo?.profile?.description || 'No description';
       const rapMaskedText = `[Check RAP](https://www.rolimons.com/player/${id})`;
       const valueMaskedText = `[Check Value](https://www.rolimons.com/player/${id})`;
@@ -187,17 +221,24 @@ client.on('interactionCreate', async (interaction) => {
         .setTitle(`${displayName} (${username})`)
         .setURL(profileUrl)
         .addFields(
-          { name: '  ', value: `**Friends** ${friendsStr} | **Followers** ${followersStr} | **Following** ${followingStr}`, inline: false },
+          // single friends/followers/following line (no duplicate)
+          { name: '\u200B', value: `**Friends** ${friendsStr} | **Followers** ${followersStr} | **Following** ${followingStr}`, inline: false },
+
+          // middle info
           { name: 'User ID', value: `${id}`, inline: true },
           { name: 'Verified', value: verified, inline: true },
           { name: 'Premium', value: premium, inline: true },
           { name: 'Badges Count', value: `${badgesCount}`, inline: true },
           { name: 'Group Count', value: `${groupsCount}`, inline: true },
           { name: 'Inventory Privacy', value: inventoryPrivacy, inline: true },
+
+          // description + rap/value
           { name: 'Description', value: description, inline: false },
           { name: 'RAP', value: rapMaskedText, inline: true },
           { name: 'Value', value: valueMaskedText, inline: true },
-          { name: 'Account Created', value: created, inline: false },
+
+          // bottom: account created
+          { name: 'Account Created', value: created, inline: false }
         )
         .setImage(headshot || undefined)
         .setFooter({ text: `Data fetched: ${timestamp}` });
@@ -205,12 +246,42 @@ client.on('interactionCreate', async (interaction) => {
       return interaction.editReply({ embeds: [embed] });
     }
 
+    // --- friends / followers / following lists ---
+    if (name === 'friends' || name === 'followers' || name === 'following') {
+      await interaction.deferReply();
+      const userInput = interaction.options.getString('user', true);
+      const id = await usernameToId(userInput);
+      if (!id) return interaction.editReply('Could not find that Roblox user.');
+
+      let list = [];
+      if (name === 'friends') list = await getFriendsList(id);
+      else if (name === 'followers') list = await getFollowersList(id);
+      else if (name === 'following') list = await getFollowingsList(id);
+
+      if (!list || list.length === 0) return interaction.editReply('No users found or empty list.');
+
+      // limit output to avoid hitting Discord char limit
+      const MAX_NAMES = 30;
+      let truncated = false;
+      if (list.join(', ').length > 1900) {
+        truncated = true;
+        list = list.slice(0, MAX_NAMES);
+      }
+
+      const heading = `${name.charAt(0).toUpperCase() + name.slice(1)} of ${userInput}:`;
+      return interaction.editReply({ content: `**${heading}**\n${list.join(', ')}${truncated ? ', ...' : ''}` });
+    }
+
   } catch (err) {
     console.error('Command error:', err);
-    if (interaction.deferred || interaction.replied) {
-      interaction.editReply('Something went wrong while processing your request.');
-    } else {
-      interaction.reply('Something went wrong while processing your request.');
+    try {
+      if (interaction.deferred || interaction.replied) {
+        await interaction.editReply('Something went wrong while processing your request.');
+      } else {
+        await interaction.reply('Something went wrong while processing your request.');
+      }
+    } catch (e) {
+      console.error('Failed to send error reply:', e);
     }
   }
 });
