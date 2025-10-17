@@ -12,12 +12,34 @@ if (!TOKEN || !CLIENT_ID) {
   process.exit(1);
 }
 
+// ---------- Slash commands ----------
 const commands = [
-  new SlashCommandBuilder().setName('avatar').setDescription('Show Roblox avatar headshot').addStringOption(opt => opt.setName('user').setDescription('Roblox username or user id').setRequired(true)),
-  new SlashCommandBuilder().setName('user').setDescription('Mention a Discord user and show Roblox avatar').addUserOption(opt => opt.setName('discord').setDescription('Discord user to mention').setRequired(true)).addStringOption(opt => opt.setName('roblox').setDescription('Roblox username or id').setRequired(true)),
-  new SlashCommandBuilder().setName('donotax').setDescription('Donate amount (40% tax)').addNumberOption(opt => opt.setName('amount').setDescription('Amount (number)').setRequired(true)),
-  new SlashCommandBuilder().setName('gamepasstax').setDescription('Gamepass donation (30% tax)').addNumberOption(opt => opt.setName('amount').setDescription('Amount (number)').setRequired(true)),
-  new SlashCommandBuilder().setName('userinfo').setDescription('Detailed Roblox user info embed').addStringOption(opt => opt.setName('user').setDescription('Roblox username or user id').setRequired(true)),
+  new SlashCommandBuilder()
+    .setName('avatar')
+    .setDescription('Show Roblox avatar headshot')
+    .addStringOption(opt => opt.setName('user').setDescription('Roblox username or user id').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('user')
+    .setDescription('Mention a Discord user and show Roblox avatar')
+    .addUserOption(opt => opt.setName('discord').setDescription('Discord user to mention').setRequired(true))
+    .addStringOption(opt => opt.setName('roblox').setDescription('Roblox username or id').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('donotax')
+    .setDescription('Donate amount (40% tax)')
+    .addNumberOption(opt => opt.setName('amount').setDescription('Amount (number)').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('gamepasstax')
+    .setDescription('Gamepass donation (30% tax)')
+    .addNumberOption(opt => opt.setName('amount').setDescription('Amount (number)').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('userinfo')
+    .setDescription('Detailed Roblox user info embed')
+    .addStringOption(opt => opt.setName('user').setDescription('Roblox username or user id').setRequired(true)),
+
 ].map(cmd => cmd.toJSON());
 
 async function registerCommands() {
@@ -70,17 +92,6 @@ async function getFollowingsCount(id) {
   return res && res.data ? res.data.count ?? null : null;
 }
 
-async function getPresence(id) {
-  const res = await axios.post('https://presence.roblox.com/v1/presence/users', { userIds: [id] }).catch(() => null);
-  if (!res || !res.data || !res.data.userPresences || res.data.userPresences.length === 0) return null;
-  return res.data.userPresences[0];
-}
-
-async function getBadges(id) {
-  const res = await axios.get(`https://badges.roblox.com/v1/users/${id}/badges?limit=100`).catch(() => null);
-  return res && res.data && res.data.data ? res.data.data : [];
-}
-
 async function getProfileInfo(id) {
   const res = await axios.get(`https://users.roblox.com/v1/users/${id}`).catch(() => null);
   const profile = res && res.data ? res.data : null;
@@ -88,7 +99,7 @@ async function getProfileInfo(id) {
   const profileData = descRes && descRes.data ? descRes.data : null;
   return { profile, profileData };
 }
-// ---------- end roblox helpers ----------
+// ---------- end Roblox helpers ----------
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
@@ -99,11 +110,13 @@ client.once('ready', () => {
   console.log(`Logged in as ${client.user.tag}`);
 });
 
+// ---------- Command handling ----------
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
   const name = interaction.commandName;
 
   try {
+    // --- /avatar ---
     if (name === 'avatar') {
       await interaction.deferReply();
       const userInput = interaction.options.getString('user', true);
@@ -111,9 +124,10 @@ client.on('interactionCreate', async (interaction) => {
       if (!id) return interaction.editReply('Could not find that Roblox user.');
       const url = await getHeadshotUrl(id);
       if (!url) return interaction.editReply('Could not fetch avatar headshot.');
-      return interaction.editReply({ content: `Roblox headshot for ${userInput} (id: ${id})\n${url}` });
+      return interaction.editReply({ content: url });
     }
 
+    // --- /user ---
     if (name === 'user') {
       await interaction.deferReply();
       const discordUser = interaction.options.getUser('discord', true);
@@ -122,38 +136,35 @@ client.on('interactionCreate', async (interaction) => {
       if (!id) return interaction.editReply('Could not find that Roblox user.');
       const url = await getHeadshotUrl(id);
       const mention = `<@${discordUser.id}>`;
-      if (url) {
-        return interaction.editReply({ content: `${mention}\n${url}` });
-      } else {
-        return interaction.editReply(`${mention}\n(avatar not found)`);
-      }
+      if (url) return interaction.editReply({ content: `${mention} ${url}` });
+      return interaction.editReply(`${mention}\n(avatar not found)`);
     }
 
+    // --- /donotax & /gamepasstax ---
     if (name === 'donotax' || name === 'gamepasstax') {
       const amount = interaction.options.getNumber('amount', true);
       const tax = name === 'donotax' ? 0.40 : 0.30;
       const net = amount * (1 - tax);
-      const fmt = (n) => (Number.isInteger(n) ? n : Number(n.toFixed(2)));
+      const fmt = n => (Number.isInteger(n) ? n : Number(n.toFixed(2)));
       return interaction.reply({
         content: `${name === 'donotax' ? 'Donate (donation tax 40%)' : 'Gamepass donation (tax 30%)'}\nOriginal: ${fmt(amount)} → After ${tax * 100}% tax: ${fmt(net)}`
       });
     }
 
+    // --- /userinfo ---
     if (name === 'userinfo') {
       await interaction.deferReply();
       const userInput = interaction.options.getString('user', true);
       const id = await usernameToId(userInput);
       if (!id) return interaction.editReply('Could not find that Roblox user.');
 
-      const [userInfo, headshot, friends, followers, followings, presence, badges, profileInfo] = await Promise.all([
+      const [userInfo, friends, followers, followings, profileInfo, headshot] = await Promise.all([
         getUserById(id),
-        getHeadshotUrl(id),
         getFriendsCount(id),
         getFollowersCount(id),
         getFollowingsCount(id),
-        getPresence(id),
-        getBadges(id),
-        getProfileInfo(id)
+        getProfileInfo(id),
+        getHeadshotUrl(id, '720x720')
       ]);
 
       if (!userInfo) return interaction.editReply('Could not fetch user info.');
@@ -161,54 +172,53 @@ client.on('interactionCreate', async (interaction) => {
       const displayName = userInfo.displayName || userInfo.username;
       const username = userInfo.name || userInfo.username || userInput;
       const profileUrl = `https://roblox.com/users/${id}/profile`;
-      const rolimonsRap = `https://www.rolimons.com/player/${id}`;
-      const rolimonsValue = `https://www.rolimons.com/player/${id}`;
+      const rapUrl = `https://www.rolimons.com/player/${id}`;
+      const valueUrl = `https://www.rolimons.com/player/${id}`;
 
       const friendsStr = friends ?? 'N/A';
       const followersStr = followers ?? 'N/A';
       const followingStr = followings ?? 'N/A';
-      const presenceType = presence ? presence.presenceType : null;
 
       let created = 'Unknown';
-      if (userInfo?.created) {
+      if (userInfo && userInfo.created) {
         const d = new Date(userInfo.created);
         created = d.toLocaleString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
       }
 
-      const badgeImages = (badges && badges.length) ? badges.slice(0, 10).map(b => `[‎](${b.imageUrl})`).join(' ') : 'None';
-      const description = profileInfo?.profileData?.blurb || profileInfo?.profile?.description || 'No description';
-      const inventoryPrivacy = (profileInfo?.profileData?.isInventoryPrivate !== undefined) ? (profileInfo.profileData.isInventoryPrivate ? 'Private' : 'Public') : 'Unknown';
-      const verified = userInfo.hasVerifiedBadge ? 'Yes' : 'No';
-      const rapMaskedText = `[Check RAP](${rolimonsRap})`;
-      const valueMaskedText = `[Check Value](${rolimonsValue})`;
+      const description = (profileInfo && profileInfo.profileData && profileInfo.profileData.blurb) || 
+                          (profileInfo && profileInfo.profile && profileInfo.profile.description) || 'No description';
 
+      const inventoryPrivacy = (profileInfo && profileInfo.profileData && typeof profileInfo.profileData.isInventoryPrivate !== 'undefined') ? 
+                                (profileInfo.profileData.isInventoryPrivate ? 'Private' : 'Public') : 'Unknown';
+      const verified = (userInfo && userInfo.hasVerifiedBadge) ? 'Yes' : 'No';
+
+      const rapText = `[RAP](${rapUrl})`;
+      const valueText = `[Value](${valueUrl})`;
+
+      // Presence
       let presenceText = 'Unknown';
-      if (presenceType === 0) presenceText = 'Offline';
-      else if (presenceType === 1) presenceText = 'Online';
-      else if (presenceType === 2) presenceText = 'In game';
-      else presenceText = `Type ${presenceType}`;
-
+      const presenceType = null; // removed presence for now
+      // Discord author
       const discordAvatarUrl = interaction.user.displayAvatarURL({ extension: 'png', size: 512 });
       const discordName = `${interaction.user.username}#${interaction.user.discriminator}`;
 
       const embed = new EmbedBuilder()
         .setTitle(`${displayName} (${username})`)
         .setURL(profileUrl)
-        .setThumbnail(headshot || undefined)
         .setColor(0xFFFFFF)
         .setAuthor({ name: discordName, iconURL: discordAvatarUrl })
         .addFields(
-          { name: '\u200B', value: `**Friends** ${friendsStr} | **Followers** ${followersStr} | **Following** ${followingStr}`, inline: false },
-          { name: '**Account Created**', value: created, inline: true },
-          { name: '**Badges**', value: badgeImages, inline: true },
-          { name: '**Description**', value: description, inline: false },
-          { name: 'User id', value: `${id}`, inline: true },
+          { name: 'Friends | Followers | Following', value: `**Friends** ${friendsStr} | **Followers** ${followersStr} | **Following** ${followingStr}`, inline: false },
+          { name: 'User ID', value: `${id}`, inline: true },
           { name: 'Verified', value: verified, inline: true },
-          { name: 'Inventory privacy', value: inventoryPrivacy, inline: true },
-          { name: 'RAP', value: rapMaskedText, inline: true },
-          { name: 'Estimated value', value: valueMaskedText, inline: true }
+          { name: 'Inventory Privacy', value: inventoryPrivacy, inline: true },
+          { name: 'Description', value: description, inline: false },
+          { name: 'RAP', value: rapText, inline: true },
+          { name: 'Value', value: valueText, inline: true },
+          { name: 'Account Created', value: created, inline: false }
         )
-        .setFooter({ text: `${presenceText} | roblox.com` });
+        .setImage(headshot || undefined)
+        .setFooter({ text: `roblox.com` });
 
       return interaction.editReply({ embeds: [embed] });
     }
@@ -223,6 +233,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 });
 
+// ---------- Start ----------
 (async () => {
   await registerCommands();
   await client.login(TOKEN);
