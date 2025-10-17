@@ -187,7 +187,7 @@ client.on('interactionCreate', async (interaction) => {
         .setTitle(`${displayName} (${username})`)
         .setURL(profileUrl)
         .addFields(
-          { name: 'Friends | Followers | Following', value: `**Friends** ${friendsStr} | **Followers** ${followersStr} | **Following** ${followingStr}`, inline: false },
+          { name: '  ', value: `**Friends** ${friendsStr} | **Followers** ${followersStr} | **Following** ${followingStr}`, inline: false },
           { name: 'User ID', value: `${id}`, inline: true },
           { name: 'Verified', value: verified, inline: true },
           { name: 'Premium', value: premium, inline: true },
